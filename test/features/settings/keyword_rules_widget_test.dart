@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -622,14 +621,21 @@ void main() {
       await _tap(tester, find.text('Hidden by keyword filters: 3 comics'));
       expect(find.byKey(_coverToggleKey).hitTestable(), findsOneWidget);
       await _tap(tester, find.byKey(_coverToggleKey));
-      final covers = find.byWidgetPredicate(
-        (widget) =>
-            widget.key is ValueKey &&
-            widget.key.toString().contains('keyword-reasons-cover:'),
-      );
-      expect(covers, findsNWidgets(3));
-      for (var index = 0; index < 3; index++) {
-        final cover = covers.at(index);
+      final ids = ['alpha comic', 'beta comic', 'gamma comic'];
+      for (final id in ids) {
+        final cover = find.byKey(
+          ValueKey('keyword-reasons-cover:webdav_library:$id'),
+        );
+        await _tap(tester, find.byKey(_coverToggleKey));
+        await tester.scrollUntilVisible(
+          cover,
+          120,
+          scrollable: find.descendant(
+            of: find.byKey(_reasonsListKey),
+            matching: find.byType(Scrollable),
+          ),
+        );
+        await tester.pumpAndSettle();
         expect(find.byKey(_coverToggleKey).hitTestable(), findsOneWidget);
         expect(cover.hitTestable(), findsOneWidget);
         expect(tester.getSize(cover), const Size(56, 78));

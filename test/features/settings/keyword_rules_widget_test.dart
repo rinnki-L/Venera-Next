@@ -1,12 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as image;
+import 'package:venera_next/components/image.dart';
 import 'package:venera_next/components/keyword_match_preview.dart';
 import 'package:venera_next/components/message.dart' show ContentDialog;
 import 'package:venera_next/components/settings_save_state.dart';
@@ -24,6 +28,36 @@ import 'package:venera_next/foundation/translations.dart';
 
 const _wordKey = ValueKey('keyword-rule-word');
 const _sampleKey = ValueKey('keyword-rule-sample');
+const _coverToggleKey = ValueKey('keyword-reasons-toggle-covers');
+const _reasonsListKey = ValueKey('keyword-reasons-list');
+const _noCoverKey = ValueKey('keyword-reasons-no-cover');
+
+class _FailedImage extends ImageProvider<_FailedImage> {
+  @override
+  Future<_FailedImage> obtainKey(ImageConfiguration configuration) =>
+      SynchronousFuture(this);
+
+  @override
+  void resolveStreamForKey(
+    ImageConfiguration configuration,
+    ImageStream stream,
+    _FailedImage key,
+    ImageErrorListener handleError,
+  ) {
+    stream.setCompleter(
+      OneFrameImageStreamCompleter(
+        Future<ImageInfo>.error(StateError('cover failed')),
+      ),
+    );
+  }
+}
+
+typedef OpenedComic =
+    ({String id, String sourceKey, String? cover, String? title});
+
+MemoryImage _memoryImage() => MemoryImage(
+  Uint8List.fromList(image.encodePng(image.Image(width: 8, height: 12))),
+);
 
 Directory _prepare() {
   final root = Directory.systemTemp.createTempSync('keyword-rules-widget-');
@@ -114,8 +148,32 @@ Future<void> _capture(WidgetTester tester, String name) async {
   });
 }
 
-Comic _comic(String title) =>
-    Comic(title, '', title, null, null, '', 'webdav_library', null, null);
+Comic _comic(String title, {String? sourceKey, String? cover}) => Comic(
+  title,
+  cover ?? '',
+  title,
+  null,
+  null,
+  '',
+  sourceKey ?? 'webdav_library',
+  null,
+  null,
+);
+
+Widget _reasonsHost(List<Comic> comics, {double textScale = 1}) {
+  return MaterialApp(
+    builder: (context, child) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(
+        textScaler: TextScaler.linear(textScale),
+        disableAnimations: true,
+      ),
+      child: child!,
+    ),
+    home: Scaffold(
+      body: CustomScrollView(slivers: [SliverGridComics(comics: comics)]),
+    ),
+  );
+}
 
 void main() {
   App.dataPath = Directory.systemTemp.path;
@@ -382,6 +440,217 @@ void main() {
         findsOneWidget,
       );
       expect(find.byType(ComicTile), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'reason covers stay hidden by default and appear only inside reasons',
+    (tester) async {
+      _prepare();
+      configureComicWidgets(tileImageProviderResolver: (_) => _memoryImage());
+      addTearDown(() {
+        tester.binding.imageCache.clear();
+        tester.binding.imageCache.clearLiveImages();
+        configureComicWidgets();
+      });
+      final comics = [_comic('alpha comic'), _comic('Other title')];
+      await tester.pumpWidget(_reasonsHost(comics));
+      await _tap(tester, find.text('Hidden by keyword filters: 1 comics'));
+      final reasons = find.byKey(_reasonsListKey);
+      expect(
+        find.descendant(of: reasons, matching: find.byType(AnimatedImage)),
+        findsNothing,
+      );
+      expect(find.byKey(_coverToggleKey), findsOneWidget);
+      expect(find.text('Show covers'.tl), findsOneWidget);
+      expect(
+        find.byKey(
+          const ValueKey('keyword-reasons-cover:webdav_library:alpha comic'),
+        ),
+        findsNothing,
+      );
+      await _tap(tester, find.byKey(_coverToggleKey));
+      expect(
+        find.descendant(of: reasons, matching: find.byType(AnimatedImage)),
+        findsOneWidget,
+      );
+      expect(find.text('Hide covers'.tl), findsOneWidget);
+      expect(
+        find.byKey(
+          const ValueKey('keyword-reasons-cover:webdav_library:alpha comic'),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'reason covers open the matching details and preserve the reasons dialog',
+    (tester) async {
+      _prepare();
+      final opened = <OpenedComic>[];
+      var ruleEdits = 0;
+      configureComicWidgets(
+        tileImageProviderResolver: (_) => _memoryImage(),
+        comicPageBuilder:
+            ({required id, required sourceKey, cover, title, heroID}) {
+              opened.add((
+                id: id,
+                sourceKey: sourceKey,
+                cover: cover,
+                title: title,
+              ));
+              return const Scaffold(body: Text('Comic details'));
+            },
+        keywordRuleEditor: (_, _) async => ruleEdits++,
+      );
+      addTearDown(configureComicWidgets);
+      final comics = [
+        _comic('alpha comic', sourceKey: 'local', cover: 'alpha-cover.png'),
+        for (var i = 1; i <= 8; i++) _comic('filler $i alpha'),
+        _comic('other alpha', sourceKey: 'network', cover: 'other-cover.png'),
+      ];
+      await tester.pumpWidget(_reasonsHost(comics));
+      await _tap(tester, find.text('Hidden by keyword filters: 10 comics'));
+      await _tap(tester, find.byKey(_coverToggleKey));
+      final list = find.byKey(_reasonsListKey);
+      await tester.scrollUntilVisible(
+        find.byKey(
+          const ValueKey('keyword-reasons-cover:network:other alpha'),
+        ),
+        120,
+        scrollable: list,
+      );
+      await tester.pumpAndSettle();
+      final scrollBefore = tester.widget<Scrollable>(list).controller?.offset;
+      expect(scrollBefore, greaterThan(0));
+      await _tap(
+        tester,
+        find.byKey(
+          const ValueKey('keyword-reasons-cover:network:other alpha'),
+        ),
+      );
+      expect(find.text('Comic details'), findsOneWidget);
+      expect(opened, [
+        (
+          id: 'other alpha',
+          sourceKey: 'network',
+          cover: 'other-cover.png',
+          title: 'other alpha',
+        ),
+      ]);
+      expect(ruleEdits, 0);
+      Navigator.of(tester.element(find.text('Comic details'))).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('Keyword filter reasons'), findsOneWidget);
+      expect(find.byKey(_reasonsListKey), findsOneWidget);
+      expect(
+        tester.widget<Scrollable>(list).controller?.offset,
+        scrollBefore,
+      );
+      expect(
+        find.text('Hidden by keyword filters: 10 comics'),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'reason text and covers have separate tap targets',
+    (tester) async {
+      _prepare();
+      final opened = <OpenedComic>[];
+      final edited = <String>[];
+      configureComicWidgets(
+        tileImageProviderResolver: (_) => _memoryImage(),
+        comicPageBuilder:
+            ({required id, required sourceKey, cover, title, heroID}) {
+              opened.add((
+                id: id,
+                sourceKey: sourceKey,
+                cover: cover,
+                title: title,
+              ));
+              return const Scaffold(body: Text('Comic details'));
+            },
+        keywordRuleEditor: (_, rule) async => edited.add(rule.keyword),
+      );
+      addTearDown(configureComicWidgets);
+      await tester.pumpWidget(_reasonsHost([_comic('alpha comic')]));
+      await _tap(tester, find.text('Hidden by keyword filters: 1 comics'));
+      await _tap(tester, find.byKey(_coverToggleKey));
+      await _tap(tester, find.text('Keyword: alpha'));
+      expect(edited, ['alpha']);
+      expect(opened, isEmpty);
+      await _tap(tester, find.text('Edit rule'));
+      expect(edited, ['alpha', 'alpha']);
+      expect(opened, isEmpty);
+      await _tap(
+        tester,
+        find.byKey(
+          const ValueKey('keyword-reasons-cover:webdav_library:alpha comic'),
+        ),
+      );
+      expect(find.text('Comic details'), findsOneWidget);
+      expect(opened, hasLength(1));
+      expect(edited, hasLength(2));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'missing and failed covers show placeholders on narrow large-text screens',
+    (tester) async {
+      _prepare();
+      configureComicWidgets(
+        tileImageProviderResolver: (comic) => comic.title == 'alpha comic'
+            ? _FailedImage()
+            : null,
+      );
+      addTearDown(configureComicWidgets);
+      appdata.settings['blockedWords'] = ['comic'];
+      tester.view.physicalSize = const Size(375, 740);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        _reasonsHost(
+          [
+            _comic('alpha comic'),
+            _comic('beta comic', sourceKey: 'local'),
+            _comic('gamma comic', sourceKey: 'network'),
+          ],
+          textScale: 1.8,
+        ),
+      );
+      await _tap(tester, find.text('Hidden by keyword filters: 3 comics'));
+      expect(find.byKey(_coverToggleKey).hitTestable(), findsOneWidget);
+      await _tap(tester, find.byKey(_coverToggleKey));
+      final covers = find.byWidgetPredicate(
+        (widget) =>
+            widget.key is ValueKey &&
+            widget.key.toString().contains('keyword-reasons-cover:'),
+      );
+      expect(covers, findsNWidgets(3));
+      for (var index = 0; index < 3; index++) {
+        final cover = covers.at(index);
+        expect(find.byKey(_coverToggleKey).hitTestable(), findsOneWidget);
+        expect(cover.hitTestable(), findsOneWidget);
+        expect(tester.getSize(cover), const Size(56, 78));
+      }
+      expect(find.byIcon(Icons.error), findsOneWidget);
+      expect(find.byKey(_noCoverKey), findsNWidgets(2));
+      expect(find.byIcon(Icons.image_outlined), findsNWidgets(3));
+      final dialog = tester.getRect(find.byType(ContentDialog));
+      expect(dialog.left, greaterThanOrEqualTo(0));
+      expect(dialog.right, lessThanOrEqualTo(375));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },

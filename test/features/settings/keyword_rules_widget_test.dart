@@ -548,10 +548,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Keyword filter reasons'), findsOneWidget);
       expect(find.byKey(_reasonsListKey), findsOneWidget);
-      expect(
-        tester.widget<Scrollable>(list).controller?.offset,
-        scrollBefore,
-      );
+      expect(tester.widget<Scrollable>(list).controller?.offset, scrollBefore);
       expect(
         find.text('Hidden by keyword filters: 10 comics'),
         findsOneWidget,

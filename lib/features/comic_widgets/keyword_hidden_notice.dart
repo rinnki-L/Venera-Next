@@ -107,7 +107,8 @@ class _KeywordHiddenDialogState extends State<_KeywordHiddenDialog> {
               children: [
                 Text(
                   _showCovers
-                      ? 'Covers are shown. Tap a cover to open its details.'.tl
+                      ? 'Covers are shown. Tap a cover to open its details.'
+                          .tl
                       : 'Only comics in this list are checked. Images stay hidden.'
                           .tl,
                 ),
@@ -117,7 +118,7 @@ class _KeywordHiddenDialogState extends State<_KeywordHiddenDialog> {
                   icon: Icon(
                     _showCovers
                         ? Icons.image_outlined
-                        : Icons.image_off_outlined,
+                        : Icons.visibility_off_outlined,
                   ),
                   label: Text(
                     _showCovers ? 'Hide covers'.tl : 'Show covers'.tl,
@@ -194,9 +195,8 @@ class _ReasonText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final onEdit = editRule == null
-        ? null
-        : () => editRule!(context, match.rule);
+    final onEdit =
+        editRule == null ? null : () => editRule!(context, match.rule);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

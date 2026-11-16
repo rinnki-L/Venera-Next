@@ -632,16 +632,20 @@ void main() {
         of: find.byKey(_reasonsListKey),
         matching: find.byType(Scrollable),
       );
-      for (final id in ['alpha comic', 'beta comic', 'gamma comic']) {
+      for (final (title, sourceKey) in [
+        ('alpha comic', 'webdav_library'),
+        ('beta comic', 'local'),
+        ('gamma comic', 'network'),
+      ]) {
         final cover = find.byKey(
-          ValueKey('keyword-reasons-cover:webdav_library:$id'),
+          ValueKey('keyword-reasons-cover:$sourceKey:$title'),
         );
         await tester.scrollUntilVisible(cover, 120, scrollable: scrollable);
         await tester.pumpAndSettle();
         expect(find.byKey(_coverToggleKey).hitTestable(), findsOneWidget);
         expect(cover.hitTestable(), findsOneWidget);
         expect(tester.getSize(cover), const Size(56, 78));
-        if (id == 'alpha comic') {
+        if (title == 'alpha comic') {
           final error = find.descendant(
             of: cover,
             matching: find.byIcon(Icons.error),

@@ -520,19 +520,21 @@ void main() {
       await tester.pumpWidget(_reasonsHost(comics));
       await _tap(tester, find.text('Hidden by keyword filters: 10 comics'));
       await _tap(tester, find.byKey(_coverToggleKey));
-      final list = find.byKey(_reasonsListKey);
-      await tester.scrollUntilVisible(
-        find.byKey(const ValueKey('keyword-reasons-cover:network:other alpha')),
-        120,
-        scrollable: list,
+      final scrollable = find.descendant(
+        of: find.byKey(_reasonsListKey),
+        matching: find.byType(Scrollable),
       );
+      final target = find.byKey(
+        const ValueKey('keyword-reasons-cover:network:other alpha'),
+      );
+      await tester.scrollUntilVisible(target, 120, scrollable: scrollable);
       await tester.pumpAndSettle();
-      final scrollBefore = tester.widget<Scrollable>(list).controller?.offset;
+      await tester.ensureVisible(target);
+      await tester.pumpAndSettle();
+      final scrollState = tester.state<ScrollableState>(scrollable);
+      final scrollBefore = scrollState.position.pixels;
       expect(scrollBefore, greaterThan(0));
-      await _tap(
-        tester,
-        find.byKey(const ValueKey('keyword-reasons-cover:network:other alpha')),
-      );
+      await _tap(tester, target);
       expect(find.text('Comic details'), findsOneWidget);
       expect(opened, [
         (
@@ -547,7 +549,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Keyword filter reasons'), findsOneWidget);
       expect(find.byKey(_reasonsListKey), findsOneWidget);
-      expect(tester.widget<Scrollable>(list).controller?.offset, scrollBefore);
+      final restoredScrollable = find.descendant(
+        of: find.byKey(_reasonsListKey),
+        matching: find.byType(Scrollable),
+      );
+      final restoredState = tester.state<ScrollableState>(restoredScrollable);
+      expect(restoredState.position.pixels, scrollBefore);
       expect(find.text('Hidden by keyword filters: 10 comics'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
@@ -621,28 +628,38 @@ void main() {
       await _tap(tester, find.text('Hidden by keyword filters: 3 comics'));
       expect(find.byKey(_coverToggleKey).hitTestable(), findsOneWidget);
       await _tap(tester, find.byKey(_coverToggleKey));
-      final ids = ['alpha comic', 'beta comic', 'gamma comic'];
-      for (final id in ids) {
+      final scrollable = find.descendant(
+        of: find.byKey(_reasonsListKey),
+        matching: find.byType(Scrollable),
+      );
+      for (final id in ['alpha comic', 'beta comic', 'gamma comic']) {
         final cover = find.byKey(
           ValueKey('keyword-reasons-cover:webdav_library:$id'),
         );
-        await _tap(tester, find.byKey(_coverToggleKey));
-        await tester.scrollUntilVisible(
-          cover,
-          120,
-          scrollable: find.descendant(
-            of: find.byKey(_reasonsListKey),
-            matching: find.byType(Scrollable),
-          ),
-        );
+        await tester.scrollUntilVisible(cover, 120, scrollable: scrollable);
         await tester.pumpAndSettle();
         expect(find.byKey(_coverToggleKey).hitTestable(), findsOneWidget);
         expect(cover.hitTestable(), findsOneWidget);
         expect(tester.getSize(cover), const Size(56, 78));
+        if (id == 'alpha comic') {
+          final error = find.descendant(
+            of: cover,
+            matching: find.byIcon(Icons.error),
+          );
+          expect(error, findsOneWidget);
+        } else {
+          final placeholder = find.descendant(
+            of: cover,
+            matching: find.byKey(_noCoverKey),
+          );
+          expect(placeholder, findsOneWidget);
+          final placeholderIcon = find.descendant(
+            of: cover,
+            matching: find.byIcon(Icons.image_outlined),
+          );
+          expect(placeholderIcon, findsOneWidget);
+        }
       }
-      expect(find.byIcon(Icons.error), findsOneWidget);
-      expect(find.byKey(_noCoverKey), findsNWidgets(2));
-      expect(find.byIcon(Icons.image_outlined), findsNWidgets(3));
       final dialog = tester.getRect(find.byType(ContentDialog));
       expect(dialog.left, greaterThanOrEqualTo(0));
       expect(dialog.right, lessThanOrEqualTo(375));

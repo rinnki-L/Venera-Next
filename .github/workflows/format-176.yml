@@ -1,6 +1,7 @@
 name: Format Issue 176
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - ci/format-176

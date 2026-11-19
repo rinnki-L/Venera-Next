@@ -126,6 +126,13 @@ ImageProvider? _resolveComicTileImageProvider(Comic comic) {
   if (comic.cover.trim().isEmpty) return null;
   if (comic is LocalComic) return LocalComicImageProvider(comic);
   if (comic is History) return HistoryImageProvider(comic);
+  // Relative covers in favorites/read-later use the local comic provider,
+  // including its inferred-cover fallback and owned loading lifecycle.
+  final cover = comic.cover;
+  if (_comicTypeOf(comic) == ComicType.local && !_looksLikeUrl(cover)) {
+    final localComic = LocalManager().find(comic.id, ComicType.local);
+    if (localComic != null) return LocalComicImageProvider(localComic);
+  }
   if (comic.sourceKey == 'local') {
     final localComic = LocalManager().find(comic.id, ComicType.local);
     return localComic == null ? null : FileImage(localComic.coverFile);
@@ -138,6 +145,18 @@ ImageProvider? _resolveComicTileImageProvider(Comic comic) {
         ? () => _loadLocalCoverFallback(comic.sourceKey, comic.id)
         : null,
   );
+}
+
+/// True when [value] is an absolute HTTP(S) URL or a rooted path, i.e. not a
+/// bare relative local filename needing a base directory to resolve.
+bool _looksLikeUrl(String value) {
+  final trimmed = value.trim();
+  if (trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.startsWith('file://')) {
+    return true;
+  }
+  return trimmed.startsWith('/') || trimmed.startsWith('\\');
 }
 
 Future<Uint8List?> _loadLocalCoverFallback(String sourceKey, String id) async {
